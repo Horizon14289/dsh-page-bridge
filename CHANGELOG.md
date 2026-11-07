@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0] - 2026-11-07
+
+### Added
+- 批量抓取：`POST /grab {"mode":"all"}` 让扩展一次采集所有 http/https 标签页，结果写入 `/batch`
+- 可选站点权限：扩展详情/弹窗里可授予「读取全部标签页」（`optional_host_permissions`），默认仍只读当前页
+- 弹窗新增「允许读取全部标签页」按钮（走 `chrome.permissions.request`）
+
+
 ## [2.4.0] - 2026-11-07
 
 ### Added

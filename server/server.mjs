@@ -15,6 +15,7 @@ import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const pageFile = path.join(here, 'last-page.json')
 const stateFile = path.join(here, 'state.json')
+const batchFile = path.join(here, 'last-batch.json')
 const PORT = Number(process.env.PORT || 8777)
 const HOST = '127.0.0.1'
 const GRAB_TTL_MS = 60_000
@@ -73,11 +74,21 @@ http
 
     // AI 主动索取：设置一个待命请求，扩展会在 1–2 秒内轮询到并抓取
     if (req.method === 'POST' && url.pathname === '/grab') {
-      const g = { id: randomUUID(), at: now() }
-      pendingGrab = g
-      console.log(`[grab] ${new Date().toLocaleTimeString()} AI 请求抓取当前页面`)
-      flushWaiters()
-      return send(res, 200, { ok: true, id: g.id })
+      let raw = ''
+      req.on('data', (c) => (raw += c))
+      req.on('end', () => {
+        let mode = 'single'
+        try {
+          const body = raw ? JSON.parse(raw) : {}
+          if (body && body.mode === 'all') mode = 'all'
+        } catch {}
+        const g = { id: randomUUID(), at: now(), mode }
+        pendingGrab = g
+        console.log(`[grab] ${new Date().toLocaleTimeString()} AI 请求抓取（${mode}）`)
+        flushWaiters()
+        send(res, 200, { ok: true, id: g.id, mode })
+      })
+      return
     }
 
     if (req.method === 'GET' && url.pathname === '/grab/pending') {
@@ -100,6 +111,50 @@ http
       }
       waiters.push({ reply: fn })
       return
+    }
+
+    if (req.method === 'POST' && url.pathname === '/batch') {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+        if (raw.length > 8_000_000) req.destroy()
+      })
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(raw)
+          writeJson(batchFile, data)
+          const pages = data.pages || []
+          const state = {
+            batch: {
+              count: pages.length,
+              failed: (data.failed || []).length,
+              at: data.sentAt || now(),
+              grabId: data.grabId || null,
+            },
+            received: {
+              title: `${pages.length} 个标签页`,
+              url: '',
+              chars: pages.reduce((n, x) => n + (x.chars || 0), 0),
+              sentAt: data.sentAt || now(),
+              stats: null,
+            },
+            readAt: null,
+            grabId: data.grabId || null,
+          }
+          writeJson(stateFile, state)
+          console.log(`[batch] ${new Date().toLocaleTimeString()} 收到 ${pages.length} 个标签页`)
+          send(res, 200, { ok: true, count: pages.length })
+        } catch (e) {
+          send(res, 400, { error: String((e && e.message) || e) })
+        }
+      })
+      return
+    }
+
+    if (req.method === 'GET' && url.pathname === '/batch') {
+      const b = readJson(batchFile)
+      if (!b) return send(res, 404, { error: 'no batch received yet' })
+      return send(res, 200, b)
     }
 
     if (req.method === 'GET' && url.pathname === '/last') {

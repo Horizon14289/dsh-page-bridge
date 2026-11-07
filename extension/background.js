@@ -1,8 +1,8 @@
-// DSH Page Bridge - background service worker
+// DSH Page Bridge - background service worker (v2.5)
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8777'
 const MAX_TEXT = 60000
+const MAX_TABS = 24
 
-// 浏览器禁止扩展读取的页面，提前拦下并给出人话提示
 const BLOCKED_PAGES = [
   [/^(edge|chrome|about|devtools|view-source|chrome-extension|moz-extension):/i, '浏览器内置页不允许扩展读取，换一个普通网页试试'],
   [/(microsoftedge\.microsoft\.com\/addons|chrome\.google\.com\/webstore|chromewebstore\.google\.com)/i, '扩展商店页面不允许扩展读取'],
@@ -12,6 +12,7 @@ const BLOCKED_ERRORS = /cannot be scripted|Cannot access contents|The extensions
 function friendlyError(message) {
   if (BLOCKED_ERRORS.test(message)) return '这个页面不允许扩展读取（浏览器内置页/商店页），换一个普通网页试试'
   if (/Failed to fetch|NetworkError/i.test(message)) return '发不到接收端：检查 start-bridge 是否在跑、站点权限是否打开'
+  if (/Cannot access|Missing host permission/i.test(message)) return '没有读取该标签页的权限：到扩展详情里把站点访问权限设为「在所有网站上」'
   if (/HTTP 4\d\d|HTTP 5\d\d/i.test(message)) return '接收端返回错误：' + message
   return message
 }
@@ -116,65 +117,91 @@ async function activeTab() {
   return tab
 }
 
-// grabId 可选：AI 主动索取时带上，接收端据此清除待命请求
+async function collectTab(tab) {
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: collectInPage,
+    args: [MAX_TEXT],
+  })
+  if (!res || !res.result) throw new Error('页面上取不到内容')
+  return res.result
+}
+
 async function sendPage(tab, grabId) {
   let endpoint = ''
   try {
     if (!tab || !tab.id) throw new Error('没有活动标签页')
     endpoint = await getEndpoint()
     assertScriptable(tab.url)
-    const [res] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: collectInPage,
-      args: [MAX_TEXT],
-    })
-    if (!res || !res.result) throw new Error('页面上取不到内容')
-    const page = res.result
-    const payload = Object.assign({}, page, {
-      sentAt: new Date().toISOString(),
-      tabTitle: tab.title || '',
-      grabId: grabId || undefined,
-    })
+    const page = await collectTab(tab)
+    const payload = Object.assign({}, page, { sentAt: new Date().toISOString(), tabTitle: tab.title || '', grabId: grabId || undefined })
     const r = await fetch(endpoint + '/page', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
     if (!r.ok) throw new Error('HTTP ' + r.status)
-    const status = {
-      ok: true,
-      at: payload.sentAt,
-      endpoint,
-      title: page.title,
-      url: page.url,
-      chars: page.text.length,
-      stats: page.stats,
-      grabId: grabId || '',
-      error: '',
-    }
+    const status = { ok: true, at: payload.sentAt, endpoint, title: page.title, url: page.url, chars: page.text.length, stats: page.stats, grabId: grabId || '', error: '' }
     await chrome.storage.local.set({ last: status })
     badge('OK', 1500)
     return status
   } catch (e) {
-    const raw = String((e && e.message) || e)
-    const status = {
-      ok: false,
-      at: new Date().toISOString(),
-      endpoint,
-      title: '',
-      url: '',
-      chars: 0,
-      stats: null,
-      grabId: grabId || '',
-      error: friendlyError(raw),
-    }
+    const status = { ok: false, at: new Date().toISOString(), endpoint, title: '', url: '', chars: 0, stats: null, grabId: grabId || '', error: friendlyError(String((e && e.message) || e)) }
     await chrome.storage.local.set({ last: status })
     badge('X', 2500)
     return status
   }
 }
 
-// ---- 待命抓取：轮询接收端的 grab 请求 ----
+// 批量：当前窗口所有可读标签页
+async function collectAllTabs() {
+  const tabs = (await chrome.tabs.query({})).filter((t) => /^https?:/i.test(t.url || '')).slice(0, MAX_TABS)
+  const pages = []
+  const failed = []
+  for (const tab of tabs) {
+    try {
+      const page = await collectTab(tab)
+      pages.push({
+        tabId: tab.id,
+        index: tab.index,
+        title: page.title,
+        url: page.url,
+        text: page.text,
+        headings: page.headings,
+        links: page.links,
+        stats: page.stats,
+        chars: page.text.length,
+      })
+    } catch (e) {
+      failed.push({ tabId: tab.id, title: tab.title || '', url: tab.url || '', error: friendlyError(String((e && e.message) || e)) })
+    }
+  }
+  return { pages, failed, total: tabs.length }
+}
+
+async function sendBatch(grabId) {
+  const endpoint = await getEndpoint()
+  try {
+    const result = await collectAllTabs()
+    const payload = { grabId: grabId || undefined, sentAt: new Date().toISOString(), ...result }
+    const r = await fetch(endpoint + '/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    await chrome.storage.local.set({
+      last: { ok: true, at: payload.sentAt, endpoint, title: `${result.pages.length} 个标签页`, url: '', chars: result.pages.reduce((n, p) => n + p.chars, 0), stats: null, grabId: grabId || '', error: '' },
+    })
+    badge('OK', 1500)
+    return { ok: true, ...result }
+  } catch (e) {
+    badge('X', 2500)
+    return { ok: false, error: friendlyError(String((e && e.message) || e)) }
+  }
+}
+
+// ---- 待命：轮询接收端的 grab 请求（支持 single / all）----
 let grabbing = false
 
 async function grabLoop() {
@@ -183,19 +210,14 @@ async function grabLoop() {
   try {
     for (let i = 0; i < 6; i++) {
       const endpoint = await getEndpoint()
-      let id = ''
+      let req = null
       try {
         const r = await fetch(endpoint + '/grab/pending?wait=25000', { cache: 'no-store' })
-        if (r.ok) {
-          const j = await r.json()
-          id = j && j.id ? String(j.id) : ''
-        }
-      } catch {
-        // 接收端没开或网络抖动，稍后重试
-      }
-      if (id) {
-        const tab = await activeTab()
-        await sendPage(tab, id)
+        if (r.ok) req = await r.json()
+      } catch {}
+      if (req && req.id) {
+        if (req.mode === 'all') await sendBatch(req.id)
+        else await sendPage(await activeTab(), req.id)
       }
       await new Promise((r) => setTimeout(r, 2000))
     }
@@ -222,7 +244,6 @@ chrome.runtime.onInstalled.addListener(() => {
   void grabLoop()
 })
 
-// 用户点击 / 快捷键时顺便把轮询叫醒
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'send-page') return
   await sendPage(tab || (await activeTab()))
@@ -243,6 +264,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     })()
     return true
   }
+  if (msg.type === 'send-all') {
+    ;(async () => {
+      const res = await sendBatch('')
+      void grabLoop()
+      reply(res)
+    })()
+    return true
+  }
   if (msg.type === 'health') {
     ;(async () => {
       const endpoint = await getEndpoint()
@@ -257,6 +286,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   }
 })
 
-// service worker 启动即进入待命
 ensureAlarm()
 void grabLoop()

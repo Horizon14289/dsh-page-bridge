@@ -1,0 +1,28 @@
+{
+  "grabId": "b1",
+  "sentAt": "2026-11-07T10:00:00.000Z",
+  "pages": [
+    {
+      "index": 0,
+      "title": "A",
+      "url": "https://a.com",
+      "chars": 100,
+      "text": "aaa"
+    },
+    {
+      "index": 1,
+      "title": "B",
+      "url": "https://b.com",
+      "chars": 200,
+      "text": "bbb"
+    }
+  ],
+  "failed": [
+    {
+      "title": "C",
+      "url": "https://c.com",
+      "error": "no permission"
+    }
+  ],
+  "total": 6
+}

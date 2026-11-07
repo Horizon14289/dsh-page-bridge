@@ -91,3 +91,22 @@ $('settings').addEventListener('click', () => chrome.runtime.openOptionsPage())
 
 refresh()
 setInterval(refresh, POLL_MS)
+
+// 可选权限：读取所有 http/https 标签页（仅在用户点击时申请）
+;(async () => {
+  const origins = ['http://*/*', 'https://*/*']
+  const has = await chrome.permissions.contains({ origins })
+  const btn = document.getElementById('grant')
+  if (!btn) return
+  if (has) {
+    btn.textContent = '已允许读取全部标签页'
+    btn.disabled = true
+  }
+  btn.addEventListener('click', async () => {
+    const ok = await chrome.permissions.request({ origins })
+    if (ok) {
+      btn.textContent = '已允许读取全部标签页'
+      btn.disabled = true
+    }
+  })
+})()
