@@ -85,6 +85,7 @@ http
               url: String(data.url || ''),
               chars: String(data.text || '').length,
               sentAt: data.sentAt || now(),
+              stats: data.stats || null,
             },
             readAt: null,
           }

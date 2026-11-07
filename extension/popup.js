@@ -42,9 +42,15 @@ async function refresh() {
 
   $('dTitle').textContent = received.title || '(无标题)'
   $('dUrl').textContent = hostOf(received.url)
-  $('dChars').textContent = received.chars + ' 字'
+  const st = received.stats
+  const extra = st && (st.frames || st.shadowHosts) ? `（${st.frames} 帧/${st.shadowHosts} shadow）` : ''
+  $('dChars').textContent = received.chars + ' 字' + extra
   $('dSent').textContent = fmt(received.sentAt)
   $('dRead').textContent = fmt(readAt)
+
+  if (received.chars < 200 && !readAt) {
+    $('statusSub').textContent = '正文偏少：页面可能没渲染完，或主体在跨域 iframe 里'
+  }
 
   if (readAt) {
     card.className = 'card ok'

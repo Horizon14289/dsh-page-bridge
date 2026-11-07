@@ -32,23 +32,92 @@ function assertScriptable(url) {
   }
 }
 
-async function collectPage(tabId) {
-  const [res] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (limit) => ({
-      title: document.title,
-      url: location.href,
-      text: (document.body ? document.body.innerText : '').replace(/\n{3,}/g, '\n\n').trim().slice(0, limit),
-      headings: [...document.querySelectorAll('h1,h2,h3')].map((h) => h.innerText.trim()).filter(Boolean).slice(0, 25),
-      links: [...document.querySelectorAll('a[href]')]
-        .map((a) => ({ text: (a.innerText || '').trim().slice(0, 60), href: a.href }))
-        .filter((x) => x.text)
-        .slice(0, 40),
-    }),
-    args: [MAX_TEXT],
-  })
-  if (!res || !res.result) throw new Error('页面上取不到内容')
-  return res.result
+// 注入到页面里的采集函数：等稳定 → 主文档 → shadow DOM → 同源 iframe（递归）
+async function collectInPage(limit) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const seen = new Set()
+  const parts = []
+  let shadowHosts = 0
+  let frames = 0
+  let blockedFrames = 0
+
+  const push = (raw) => {
+    const s = String(raw || '').replace(/\u00a0/g, ' ').trim()
+    if (s && !seen.has(s)) {
+      seen.add(s)
+      parts.push(s)
+    }
+  }
+
+  const deepShadow = (root, depth) => {
+    if (depth > 5) return
+    for (const el of root.querySelectorAll('*')) {
+      if (!el.shadowRoot) continue
+      shadowHosts++
+      // innerText 已包含 shadow 文本时不再重复收集
+      if (!el.innerText || !el.innerText.trim()) push(el.shadowRoot.textContent)
+      deepShadow(el.shadowRoot, depth + 1)
+    }
+  }
+
+  const walkDoc = (doc, depth) => {
+    if (!doc || depth > 4) return
+    try {
+      if (doc.body) push(doc.body.innerText)
+    } catch {}
+    try {
+      deepShadow(doc, 0)
+    } catch {}
+    let nodes = []
+    try {
+      nodes = doc.querySelectorAll('iframe,frame')
+    } catch {}
+    for (const f of nodes) {
+      let cd = null
+      try {
+        cd = f.contentDocument
+      } catch {}
+      if (cd) {
+        frames++
+        walkDoc(cd, depth + 1)
+      } else {
+        blockedFrames++
+      }
+    }
+  }
+
+  // 等稳定：文本长度连续两次相同（或最多 3 秒）
+  let last = -1
+  for (let i = 0; i < 12; i++) {
+    let len = 0
+    try {
+      len = document.body ? document.body.innerText.length : 0
+    } catch {}
+    if (len > 0 && len === last) break
+    last = len
+    await sleep(250)
+  }
+
+  walkDoc(document, 0)
+
+  const text = parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, limit)
+  const headings = [...document.querySelectorAll('h1,h2,h3')]
+    .map((h) => h.innerText.trim())
+    .filter(Boolean)
+    .slice(0, 25)
+  const links = [...document.querySelectorAll('a[href]')]
+    .map((a) => ({ text: (a.innerText || '').trim().slice(0, 60), href: a.href }))
+    .filter((x) => x.text)
+    .slice(0, 40)
+
+  return {
+    title: document.title,
+    url: location.href,
+    text,
+    headings,
+    links,
+    stats: { frames, blockedFrames, shadowHosts },
+  }
 }
 
 async function sendPage(tab) {
@@ -57,21 +126,39 @@ async function sendPage(tab) {
     if (!tab || !tab.id) throw new Error('没有活动标签页')
     endpoint = await getEndpoint()
     assertScriptable(tab.url)
-    const page = await collectPage(tab.id)
-    const payload = Object.assign({}, page, { sentAt: new Date().toISOString(), tabTitle: tab.title || '' })
-    const res = await fetch(endpoint + '/page', {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: collectInPage,
+      args: [MAX_TEXT],
+    })
+    if (!res || !res.result) throw new Error('页面上取不到内容')
+    const page = res.result
+    const payload = Object.assign({}, page, {
+      sentAt: new Date().toISOString(),
+      tabTitle: tab.title || '',
+    })
+    const r = await fetch(endpoint + '/page', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const status = { ok: true, at: payload.sentAt, endpoint, title: page.title, url: page.url, chars: page.text.length, error: '' }
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    const status = {
+      ok: true,
+      at: payload.sentAt,
+      endpoint,
+      title: page.title,
+      url: page.url,
+      chars: page.text.length,
+      stats: page.stats,
+      error: '',
+    }
     await chrome.storage.local.set({ last: status })
     badge('OK', 1500)
     return status
   } catch (e) {
     const raw = String((e && e.message) || e)
-    const status = { ok: false, at: new Date().toISOString(), endpoint, title: '', url: '', chars: 0, error: friendlyError(raw) }
+    const status = { ok: false, at: new Date().toISOString(), endpoint, title: '', url: '', chars: 0, stats: null, error: friendlyError(raw) }
     await chrome.storage.local.set({ last: status })
     badge('X', 2500)
     return status
