@@ -1,9 +1,7 @@
 const $ = (id) => document.getElementById(id)
 
 function fmtTime(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleTimeString()
+  return iso ? new Date(iso).toLocaleTimeString() : ''
 }
 
 async function refreshStatus() {
@@ -36,6 +34,18 @@ $('send').addEventListener('click', async () => {
   $('send').textContent = '发送当前页面'
   $('send').disabled = false
   if (!status || !status.ok) $('statusText').textContent = '发送失败'
+})
+
+$('panel').addEventListener('click', async () => {
+  const url = chrome.runtime.getURL('panel.html')
+  const existing = await chrome.tabs.query({ url })
+  if (existing.length) {
+    await chrome.tabs.update(existing[0].id, { active: true })
+    await chrome.windows.update(existing[0].windowId, { focused: true })
+    return
+  }
+  await chrome.windows.create({ url, type: 'popup', width: 430, height: 640 })
+  window.close()
 })
 
 $('settings').addEventListener('click', () => chrome.runtime.openOptionsPage())

@@ -1,0 +1,45 @@
+:root {
+  --bg: #fff; --fg: #1b1f24; --muted: #6b7280; --line: #e5e7eb;
+  --accent: #2378c8; --ok: #16a34a; --warn: #d97706;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1c1f24; --fg: #e8eaed; --muted: #9aa0a6; --line: #33373d; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 14px; background: var(--bg); color: var(--fg);
+  font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+header strong { flex: 1; }
+.pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.pill.ok { color: #fff; background: var(--ok); border-color: var(--ok); }
+.pill.bad { color: #fff; background: #dc2626; border-color: #dc2626; }
+.card {
+  display: flex; gap: 12px; align-items: center;
+  padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+  margin-bottom: 12px; background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+}
+.card.warn { border-color: var(--warn); }
+.card.ok { border-color: var(--ok); }
+.status-icon {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 17px; background: var(--line); color: var(--muted); flex: none;
+}
+.card.warn .status-icon { background: var(--warn); color: #fff; }
+.card.ok .status-icon { background: var(--ok); color: #fff; }
+.status-text { min-width: 0; }
+#statusTitle { font-weight: 700; font-size: 14px; }
+#statusSub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.detail { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.row { display: flex; gap: 10px; padding: 3px 0; font-size: 12px; }
+.row span { color: var(--muted); width: 44px; flex: none; }
+.row b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; gap: 8px; margin: 14px 0 10px; }
+button { padding: 9px 12px; border-radius: 9px; cursor: pointer; font: inherit; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+button.primary { flex: 1; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: .55; cursor: default; }
+.hint { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 0; }
