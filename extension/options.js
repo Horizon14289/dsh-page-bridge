@@ -6,8 +6,9 @@ const msg = (text, cls = '') => {
 }
 
 ;(async () => {
-  const { endpoint } = await chrome.storage.local.get({ endpoint: DEFAULT_ENDPOINT })
+  const { endpoint, dshUrl } = await chrome.storage.local.get({ endpoint: DEFAULT_ENDPOINT, dshUrl: '' })
   $('endpoint').value = endpoint
+  $('dshUrl').value = dshUrl
 })()
 
 $('save').addEventListener('click', async () => {
@@ -16,7 +17,7 @@ $('save').addEventListener('click', async () => {
     msg('只支持本机地址，例如 http://127.0.0.1:8777', 'bad')
     return
   }
-  await chrome.storage.local.set({ endpoint: value })
+  await chrome.storage.local.set({ endpoint: value, dshUrl: ($('dshUrl').value || '').trim() })
   msg('已保存：' + value, 'ok')
 })
 
