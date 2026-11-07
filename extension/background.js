@@ -54,7 +54,6 @@ async function collectInPage(limit) {
     for (const el of root.querySelectorAll('*')) {
       if (!el.shadowRoot) continue
       shadowHosts++
-      // innerText 已包含 shadow 文本时不再重复收集
       if (!el.innerText || !el.innerText.trim()) push(el.shadowRoot.textContent)
       deepShadow(el.shadowRoot, depth + 1)
     }
@@ -86,7 +85,6 @@ async function collectInPage(limit) {
     }
   }
 
-  // 等稳定：文本长度连续两次相同（或最多 3 秒）
   let last = -1
   for (let i = 0; i < 12; i++) {
     let len = 0
@@ -110,17 +108,16 @@ async function collectInPage(limit) {
     .filter((x) => x.text)
     .slice(0, 40)
 
-  return {
-    title: document.title,
-    url: location.href,
-    text,
-    headings,
-    links,
-    stats: { frames, blockedFrames, shadowHosts },
-  }
+  return { title: document.title, url: location.href, text, headings, links, stats: { frames, blockedFrames, shadowHosts } }
 }
 
-async function sendPage(tab) {
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  return tab
+}
+
+// grabId 可选：AI 主动索取时带上，接收端据此清除待命请求
+async function sendPage(tab, grabId) {
   let endpoint = ''
   try {
     if (!tab || !tab.id) throw new Error('没有活动标签页')
@@ -136,6 +133,7 @@ async function sendPage(tab) {
     const payload = Object.assign({}, page, {
       sentAt: new Date().toISOString(),
       tabTitle: tab.title || '',
+      grabId: grabId || undefined,
     })
     const r = await fetch(endpoint + '/page', {
       method: 'POST',
@@ -151,6 +149,7 @@ async function sendPage(tab) {
       url: page.url,
       chars: page.text.length,
       stats: page.stats,
+      grabId: grabId || '',
       error: '',
     }
     await chrome.storage.local.set({ last: status })
@@ -158,27 +157,90 @@ async function sendPage(tab) {
     return status
   } catch (e) {
     const raw = String((e && e.message) || e)
-    const status = { ok: false, at: new Date().toISOString(), endpoint, title: '', url: '', chars: 0, stats: null, error: friendlyError(raw) }
+    const status = {
+      ok: false,
+      at: new Date().toISOString(),
+      endpoint,
+      title: '',
+      url: '',
+      chars: 0,
+      stats: null,
+      grabId: grabId || '',
+      error: friendlyError(raw),
+    }
     await chrome.storage.local.set({ last: status })
     badge('X', 2500)
     return status
   }
 }
 
-async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  return tab
+// ---- 待命抓取：轮询接收端的 grab 请求 ----
+let grabbing = false
+
+async function grabLoop() {
+  if (grabbing) return
+  grabbing = true
+  try {
+    for (let i = 0; i < 6; i++) {
+      const endpoint = await getEndpoint()
+      let id = ''
+      try {
+        const r = await fetch(endpoint + '/grab/pending?wait=25000', { cache: 'no-store' })
+        if (r.ok) {
+          const j = await r.json()
+          id = j && j.id ? String(j.id) : ''
+        }
+      } catch {
+        // 接收端没开或网络抖动，稍后重试
+      }
+      if (id) {
+        const tab = await activeTab()
+        await sendPage(tab, id)
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  } finally {
+    grabbing = false
+  }
 }
 
+function ensureAlarm() {
+  try {
+    chrome.alarms.create('grab-poll', { periodInMinutes: 1 })
+  } catch {}
+}
+
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'grab-poll') void grabLoop()
+})
+chrome.runtime.onStartup.addListener(() => {
+  ensureAlarm()
+  void grabLoop()
+})
+chrome.runtime.onInstalled.addListener(() => {
+  ensureAlarm()
+  void grabLoop()
+})
+
+// 用户点击 / 快捷键时顺便把轮询叫醒
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'send-page') return
   await sendPage(tab || (await activeTab()))
+  void grabLoop()
+})
+
+chrome.action.onClicked.addListener(() => {
+  void grabLoop()
 })
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg) return
   if (msg.type === 'send') {
-    ;(async () => reply(await sendPage(await activeTab())))()
+    ;(async () => {
+      const status = await sendPage(await activeTab())
+      void grabLoop()
+      reply(status)
+    })()
     return true
   }
   if (msg.type === 'health') {
@@ -194,3 +256,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     return true
   }
 })
+
+// service worker 启动即进入待命
+ensureAlarm()
+void grabLoop()

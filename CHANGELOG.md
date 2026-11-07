@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0] - 2026-11-07
+
+### Added
+- AI 主动索取：接收端新增 `POST /grab` 与 `GET /grab/pending`，扩展后台长轮询，1–2 秒内自动抓取当前标签页
+- 新增 `alarms` 权限，用于 service worker 被回收后重新进入待命
+
+
 ## [2.3.0] - 2026-11-07
 
 ### Added

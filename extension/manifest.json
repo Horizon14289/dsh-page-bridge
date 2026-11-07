@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DSH Page Bridge",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Send the current page's text to a local DSH receiver so an AI can read it. 把当前页面正文发到本机 DSH。",
   "icons": {
     "16": "icons/icon16.png",
@@ -12,7 +12,8 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
