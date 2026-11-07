@@ -1,54 +1,87 @@
 const $ = (id) => document.getElementById(id)
+const POLL_MS = 2000
 
-function fmtTime(iso) {
-  return iso ? new Date(iso).toLocaleTimeString() : ''
+const endpoint = () =>
+  chrome.storage.local.get({ endpoint: 'http://127.0.0.1:8777' })
+    .then((x) => String(x.endpoint).replace(/\/+$/, ''))
+
+const fmt = (iso) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleTimeString() + ' ' + d.toLocaleDateString()
 }
 
-async function refreshStatus() {
-  const st = await chrome.runtime.sendMessage({ type: 'health' })
-  const ok = st && st.ok
-  $('dot').className = 'dot ' + (ok ? 'ok' : 'bad')
-  $('statusText').textContent = ok ? '接收端已连接' : '接收端未连接'
-  $('endpoint').textContent = (st && st.endpoint) || ''
-  $('send').disabled = !ok
+const hostOf = (url) => {
+  try { return new URL(url).host } catch { return url }
 }
 
-async function refreshLast() {
-  const { last } = await chrome.storage.local.get('last')
-  if (!last) {
-    $('lastTitle').textContent = '还没有发送过'
-    $('lastMeta').textContent = '—'
+async function refresh() {
+  const base = await endpoint()
+  let state = null
+  let ok = false
+  try {
+    const r = await fetch(base + '/state', { cache: 'no-store' })
+    if (r.ok) { state = await r.json(); ok = true }
+  } catch {}
+
+  $('conn').textContent = ok ? '已连接' : '未连接'
+  $('conn').className = 'pill ' + (ok ? 'ok' : 'bad')
+
+  const card = $('card')
+  const received = state && state.received
+  const readAt = state && state.readAt
+
+  if (!received) {
+    card.className = 'card idle'
+    $('statusIcon').textContent = '•'
+    $('statusTitle').textContent = '还没有发送页面'
+    $('statusSub').textContent = '按 Alt+Shift+S，或点下面的按钮'
+    for (const k of ['dTitle','dUrl','dChars','dSent','dRead']) $(k).textContent = '—'
     return
   }
-  $('lastTitle').textContent = last.ok ? last.title || '(无标题)' : '发送失败'
-  $('lastMeta').textContent = last.ok
-    ? `${fmtTime(last.at)} · ${last.chars} 字`
-    : `${fmtTime(last.at)} · ${last.error || '未知错误'}`
+
+  $('dTitle').textContent = received.title || '(无标题)'
+  $('dUrl').textContent = hostOf(received.url)
+  $('dChars').textContent = received.chars + ' 字'
+  $('dSent').textContent = fmt(received.sentAt)
+  $('dRead').textContent = fmt(readAt)
+
+  if (readAt) {
+    card.className = 'card ok'
+    $('statusIcon').textContent = '✓'
+    $('statusTitle').textContent = 'AI 已读取'
+    $('statusSub').textContent = '读取于 ' + fmt(readAt)
+  } else {
+    card.className = 'card warn'
+    $('statusIcon').textContent = '↑'
+    $('statusTitle').textContent = '已发送，等待 AI 读取'
+    $('statusSub').textContent = '回对话框说「读一下刚才的页面」'
+  }
 }
 
 $('send').addEventListener('click', async () => {
   $('send').disabled = true
   $('send').textContent = '发送中…'
   const status = await chrome.runtime.sendMessage({ type: 'send' })
-  await refreshLast()
+  if (!status || !status.ok) {
+    $('statusTitle').textContent = '发送失败'
+    $('statusSub').textContent = (status && status.error) || '未知错误'
+  }
   $('send').textContent = '发送当前页面'
   $('send').disabled = false
-  if (!status || !status.ok) $('statusText').textContent = '发送失败'
-})
-
-$('panel').addEventListener('click', async () => {
-  const url = chrome.runtime.getURL('panel.html')
-  const existing = await chrome.tabs.query({ url })
-  if (existing.length) {
-    await chrome.tabs.update(existing[0].id, { active: true })
-    await chrome.windows.update(existing[0].windowId, { focused: true })
-    return
-  }
-  await chrome.windows.create({ url, type: 'popup', width: 430, height: 640 })
-  window.close()
+  refresh()
 })
 
 $('settings').addEventListener('click', () => chrome.runtime.openOptionsPage())
 
-refreshStatus()
-refreshLast()
+;(async () => {
+  const { dshUrl } = await chrome.storage.local.get({ dshUrl: '' })
+  if (dshUrl) {
+    const btn = $('openDsh')
+    btn.hidden = false
+    btn.addEventListener('click', () => chrome.tabs.create({ url: dshUrl }))
+  }
+})()
+
+refresh()
+setInterval(refresh, POLL_MS)
