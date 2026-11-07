@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "DSH Page Bridge",
+  "version": "2.0.1",
+  "description": "Send the current page's text to a local DSH receiver so an AI can read it. 把当前页面正文发到本机 DSH。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Send this page to DSH (Alt+Shift+S)",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "send-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Send this page to DSH"
+    }
+  }
+}

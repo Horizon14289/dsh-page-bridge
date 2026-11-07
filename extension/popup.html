@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="" width="22" height="22" />
+    <strong>DSH Page Bridge</strong>
+    <button id="settings" class="ghost" title="设置">⚙</button>
+  </header>
+
+  <section class="status">
+    <span id="dot" class="dot"></span>
+    <span id="statusText">检查中…</span>
+    <code id="endpoint"></code>
+  </section>
+
+  <section class="last" id="lastBox">
+    <div class="label">上一次发送</div>
+    <div id="lastTitle" class="title">—</div>
+    <div id="lastMeta" class="meta">—</div>
+  </section>
+
+  <button id="send" class="primary">发送当前页面</button>
+  <p class="hint">快捷键 <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> 也可以</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

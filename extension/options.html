@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>DSH Page Bridge · 设置</title>
+<style>
+  body { max-width: 620px; margin: 40px auto; padding: 0 20px;
+         font: 14px/1.6 "Segoe UI", system-ui, sans-serif; color: #1b1f24; }
+  h1 { font-size: 18px; }
+  label { display: block; margin: 18px 0 6px; font-weight: 600; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font: inherit; }
+  .row { display: flex; gap: 8px; margin-top: 14px; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
+  button.primary { background: #2378c8; border-color: #2378c8; color: #fff; font-weight: 600; }
+  #msg { margin-top: 12px; font-size: 13px; }
+  .ok { color: #16a34a; } .bad { color: #dc2626; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>DSH Page Bridge 设置</h1>
+  <p>接收端地址（只允许本机）：</p>
+  <label for="endpoint">Endpoint</label>
+  <input id="endpoint" placeholder="http://127.0.0.1:8777" />
+  <div class="row">
+    <button class="primary" id="save">保存</button>
+    <button id="test">测试连接</button>
+  </div>
+  <div id="msg"></div>
+  <p style="margin-top:24px;color:#6b7280;font-size:13px">
+    接收端启动方式见仓库 <code>server/</code> 目录：<code>node server.mjs</code>。
+  </p>
+  <script src="options.js"></script>
+</body>
+</html>
